@@ -1,1 +1,2 @@
 requests>=2.31,<3
+dnspython>=2.6.0,<3

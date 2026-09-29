@@ -1,79 +1,167 @@
-# Rudra Pratap Dalei - Red Team Subdomain Takeover Checker
+# Rudra Pratap Dalei - Red Team Subdomain Takeover Scanner
 
-A small Python command-line tool for checking an authorized list of subdomains for two takeover-related signals:
+[![CI](https://github.com/Rhack-INDIA/subdomain-takeover-checker/actions/workflows/ci.yml/badge.svg)](https://github.com/Rhack-INDIA/subdomain-takeover-checker/actions/workflows/ci.yml)
+![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-- DNS names that fail to resolve with a name-not-found response (reported as an **NXDOMAIN candidate**).
-- HTTP response pages containing the `NoSuchBucket` marker.
+A high-performance, concurrent Python red-teaming tool designed to scan authorized lists of subdomains for takeover-related signals, including:
 
-These signals are leads, not proof of a takeover. A missing DNS name is not necessarily claimable, and a matching page should be verified with the relevant provider and DNS configuration before reporting.
+- **NXDOMAIN Candidates & Dangling CNAMEs:** Identifies unresolved subdomains and canonical name (CNAME) chains pointing to unclaimed third-party resources.
+- **Multi-Cloud Fingerprint Signatures:** Inspects HTTP/HTTPS responses across leading cloud hosting, SaaS, and CDN providers for unclaimed resource error markers.
+- **Concurrent Multi-Threading:** Rapid scanning of large target inventories utilizing dynamic worker pools.
+- **Flexible Multi-Format Reporting:** Export findings to aligned plain text, RFC 4180 CSV, or structured JSON.
+- **Automated CI/CD:** Integrated GitHub Actions workflow running cross-platform tests across Python 3.10 through 3.13.
 
-## Requirements
+> [!NOTE]
+> These signals are leads, not proof of a takeover. A missing DNS record or matching provider error page must be verified against current DNS configuration and cloud tenant claims before reporting.
 
-- Python 3.10+
-- `requests`
+---
 
-Install the dependency:
+## Supported Provider Signatures
+
+The scanner recognizes fingerprinted response patterns and dangling CNAME targets for:
+
+| Provider | CNAME Indicators | Signature Examples |
+| :--- | :--- | :--- |
+| **AWS S3 / CloudFront** | `*.s3.amazonaws.com`, `*.cloudfront.net` | `NoSuchBucket`, `The request could not be satisfied` |
+| **GitHub Pages** | `*.github.io` | `There isn't a GitHub Pages site here` |
+| **Heroku** | `*.herokuapp.com`, `*.herokussl.com` | `No such app`, `There's nothing here, yet.` |
+| **Microsoft Azure** | `*.azurewebsites.net`, `*.cloudapp.net` | `404 Web Site not found`, `The specified account does not exist` |
+| **Shopify** | `*.myshopify.com` | `Sorry, this shop is currently unavailable` |
+| **Fastly CDN** | `*.fastly.net` | `Fastly error: unknown domain` |
+| **Surge.sh** | `*.surge.sh` | `project not found` |
+| **Ghost** | `*.ghost.io` | `The thing you were looking for is no longer here` |
+| **ReadTheDocs** | `*.readthedocs.io` | `is not hosted by Read the Docs` |
+| **Zendesk** | `*.zendesk.com` | `Help Center Closed` |
+| **Bitbucket** | `*.bitbucket.io` | `Repository not found` |
+| **Pantheon** | `*.pantheonsite.io` | `The gods are wise, but do not know of the site which you seek` |
+| **Tumblr** | `domains.tumblr.com` | `Whatever you were looking for doesn't seem to exist at this URL` |
+| **WordPress.com** | `*.wordpress.com` | `Do you want to register`, `doesn't exist` |
+| **Unbounce** | `*.unbouncepages.com` | `The requested URL was not found on this server` |
+
+---
+
+## Requirements & Setup
+
+* Python 3.10+
+* Dependencies: `requests`, `dnspython`
+
+Clone the repository and install dependencies in a virtual environment:
 
 ```powershell
-python -m pip install -r requirements.txt
+# Clone repo
+git clone https://github.com/Rhack-INDIA/subdomain-takeover-checker.git
+cd subdomain-takeover-checker
+
+# Set up virtual environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# Install requirements
+pip install -r requirements.txt
 ```
+
+---
 
 ## Usage
 
-Put one hostname per line in a text file (blank lines and lines beginning with `#` are ignored), then run:
+### Quick Scan
+Place target hostnames in a text file (one per line; empty lines and lines starting with `#` are ignored), then execute:
 
 ```powershell
 python src\checker.py --input evidence\sample_data.txt
 ```
 
-By default, the checker writes candidates to `takeover_targets.txt` and a run log to `logs\output.log`. Override paths and request timeout as needed:
-
+### Advanced Scan Options
 ```powershell
-python src\checker.py --input targets.txt --output results.txt --log logs\run.log --timeout 8
+python src\checker.py -i targets.txt -o findings.json -f json -t 20 -w 4.0 -k
 ```
 
-The tool resolves each hostname first. It labels only resolver name-not-found errors as NXDOMAIN candidates; DNS timeouts and other resolver failures are logged as errors rather than treated as vulnerabilities. Resolvable hosts are checked over HTTPS and HTTP, with certificate verification enabled, for the `NoSuchBucket` response marker. Requests are read-only `GET`s.
+### Command-Line Arguments
 
-## Output
+| Flag | Long Flag | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `-i` | `--input` | `evidence/sample_data.txt` | Path to target hostname list file. |
+| `-o` | `--output` | `takeover_targets.txt` | Path to save scan findings. |
+| `-l` | `--log` | `logs/output.log` | Path for run logs. |
+| `-t` | `--threads` | `10` | Number of concurrent worker threads. |
+| `-w` | `--timeout` | `5.0` | HTTP and DNS timeout in seconds. |
+| `-f` | `--format` | `text` | Export format: `text`, `json`, `csv`, or `legacy`. |
+| `-k` | `--no-verify-ssl` | `False` | Ignore SSL/TLS validation (for dangling custom certs). |
+| `-v` | `--verbose` | `False` | Enable detailed debug logging. |
 
-The output file contains one candidate hostname per line, with a reason after a tab:
+---
 
+## Output Formats
+
+### JSON (`-f json`)
+```json
+[
+  {
+    "hostname": "docs.example.com",
+    "service": "GitHub Pages",
+    "cname": "org.github.io",
+    "reason": "GitHub Pages marker (404)",
+    "status_code": 404,
+    "timestamp": "2026-09-29T12:00:00Z"
+  }
+]
+```
+
+### CSV (`-f csv`)
+```csv
+hostname,service,cname,reason,status_code,timestamp
+docs.example.com,GitHub Pages,org.github.io,GitHub Pages marker (404),404,2026-09-29T12:00:00Z
+```
+
+### Aligned Text (`-f text`)
 ```text
-missing.example.invalid	NXDOMAIN candidate
+docs.example.com	GitHub Pages	org.github.io	GitHub Pages marker (404)
+missing.example.com	N/A	None	NXDOMAIN candidate
 ```
 
-No output file entries means no configured indicator was found during that run; it does not establish that a host is safe.
+---
 
-## Project layout
+## Project Structure
 
 ```text
 .
+|-- .github/
+|   `-- workflows/
+|       `-- ci.yml              # Automated cross-platform CI workflow
+|-- evidence/
+|   `-- sample_data.txt         # Sample subdomain list
+|-- logs/
+|   `-- output.log              # Run log
+|-- screenshots/                # Evidence & run screenshots
+|-- src/
+|   |-- __init__.py
+|   |-- checker.py              # CLI & multi-threaded orchestration
+|   |-- dns_resolver.py         # DNS resolution & CNAME analysis
+|   |-- exporter.py             # Multi-format report exporters (JSON/CSV/Text)
+|   `-- signatures.py           # Multi-cloud takeover fingerprint catalog
+|-- tests/
+|   `-- test_checker.py         # Comprehensive unit test suite
+|-- .gitignore
 |-- README.md
 |-- requirements.txt
-|-- src/
-|   `-- checker.py
-|-- screenshots/
-|-- logs/
-|   `-- output.log
-|-- evidence/
-|   `-- sample_data.txt
-|-- tests/
-|   `-- test_checker.py
 `-- takeover_targets.txt
 ```
 
+---
+
 ## Testing
 
-Run the offline unit tests (no DNS or external HTTP calls):
+Run the full offline test suite:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-## Responsible use
+All network calls and DNS queries are cleanly mocked in unit tests to ensure fast, deterministic CI execution.
 
-Only check systems you own or are explicitly authorized to assess. The checker does not claim cloud resources, modify DNS, or exploit a finding. Confirm suspected dangling records with the domain owner/provider and preserve authorization and evidence before taking further action.
+---
 
-## Screenshots
+## Responsible Red-Teaming & Ethics
 
-Add genuine captures of your own run to `screenshots/` before submission, using the requested names `01_setup.png`, `02_output.png`, and `03_findings.png`. Capture the setup/command, the resulting output file, and any verified finding respectively. Do not present sample or simulated output as a real finding.
+This tool is created for authorized penetration testing, vulnerability assessments, bug bounty hunting on domains within scope, and defensive security auditing. Only scan targets you have explicit permission to assess. Do not attempt unauthorized takeover of resources.
