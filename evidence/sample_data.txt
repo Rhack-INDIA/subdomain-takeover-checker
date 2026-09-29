@@ -1,0 +1,3 @@
+# Safe documentation example using the reserved .invalid TLD.
+# This will normally produce a DNS name-not-found candidate.
+missing.example.invalid
