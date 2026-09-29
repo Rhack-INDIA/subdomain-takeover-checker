@@ -123,6 +123,13 @@ Export an interactive dashboard report:
 python src\checker.py -i targets.txt -o assessment_report.html -f html
 ```
 
+### 5. Automated Defensive Remediation Playbooks
+Generate automated AWS Route53, Cloudflare, and BIND DNS cleanup scripts for all detected dangling records:
+
+```powershell
+python src\checker.py -i targets.txt --fix-script remediation.sh
+```
+
 ---
 
 ## Command-Line Arguments
@@ -132,6 +139,7 @@ python src\checker.py -i targets.txt -o assessment_report.html -f html
 | `-i` | `--input` | `evidence/sample_data.txt` | Path to target hostname list file. |
 | `-d` | `--domain` | `None` | Target root domain for passive discovery via Certificate Transparency (`crt.sh`). |
 | | `--save-subdomains` | `None` | Path to save passively discovered subdomains to disk. |
+| | `--fix-script` | `None` | Path to export automated defensive DNS remediation playbooks (Route53/Cloudflare/BIND). |
 | `-o` | `--output` | `takeover_targets.txt` | Path to save scan findings. |
 | `-l` | `--log` | `logs/output.log` | Path for run logs. |
 | `-t` | `--threads` | `10` | Number of concurrent worker threads. |
@@ -200,9 +208,11 @@ docs.example.com,GitHub Pages,org.github.io,GitHub Pages marker (404),404,2026-0
 |   |-- discovery.py            # Passive Certificate Transparency discovery engine
 |   |-- dns_resolver.py         # DNS resolution & CNAME chain analysis
 |   |-- exporter.py             # Multi-format report exporters (HTML/JSON/CSV/Text)
-|   `-- signatures.py           # 35+ multi-cloud takeover fingerprint catalog
+|   |-- remediation.py          # Automated DNS remediation playbook generator
+|   |-- signatures.py           # 35+ multi-cloud takeover fingerprint catalog
+|   `-- your_script.py          # Evaluation entrypoint alias
 |-- tests/
-|   `-- test_checker.py         # Comprehensive unit test suite (35+ unit tests)
+|   `-- test_checker.py         # Comprehensive unit test suite (40+ unit tests)
 |-- .gitignore
 |-- README.md
 |-- requirements.txt

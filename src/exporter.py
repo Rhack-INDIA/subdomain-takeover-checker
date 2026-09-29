@@ -141,6 +141,9 @@ def format_html(findings: Sequence[Finding], report_title: str = "Subdomain Take
     high_count = sum(1 for f in findings if f.severity.upper() == "HIGH")
     medium_count = sum(1 for f in findings if f.severity.upper() in ("MEDIUM", "LOW", "INFO"))
     unique_services = sorted({f.service for f in findings if f.service})
+    crit_pct = int((critical_count / total * 100)) if total else 0
+    high_pct = int((high_count / total * 100)) if total else 0
+    med_pct = max(0, 100 - crit_pct - high_pct) if (total and critical_count + high_count < total) else (int((medium_count / total * 100)) if total else 0)
 
     rows_html: list[str] = []
     for f in findings:
@@ -235,6 +238,19 @@ def format_html(findings: Sequence[Finding], report_title: str = "Subdomain Take
             gap: 1rem;
             margin-bottom: 2rem;
         }}
+        .risk-meter-section {{
+            margin-bottom: 2rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1.25rem;
+        }}
+        .risk-bar-container {{ display: flex; flex-direction: column; gap: 0.5rem; }}
+        .risk-bar-label {{ display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }}
+        .risk-bar {{ display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #1f2937; }}
+        .bar-crit {{ background: var(--critical); }}
+        .bar-high {{ background: var(--high); }}
+        .bar-med {{ background: var(--medium); }}
         .stat-card {{
             background-color: var(--card-bg);
             border: 1px solid var(--border);
@@ -367,6 +383,20 @@ def format_html(findings: Sequence[Finding], report_title: str = "Subdomain Take
             <div class="stat-card card-medium">
                 <div class="label">Medium Candidates</div>
                 <div class="value">{medium_count}</div>
+            </div>
+        </section>
+
+        <section class="risk-meter-section">
+            <div class="risk-bar-container">
+                <div class="risk-bar-label">
+                    <span>Severity Composition</span>
+                    <span>{critical_count} Critical ({crit_pct}%) &bull; {high_count} High ({high_pct}%) &bull; {medium_count} Medium ({med_pct}%)</span>
+                </div>
+                <div class="risk-bar">
+                    <div class="bar-crit" style="width: {crit_pct}%;"></div>
+                    <div class="bar-high" style="width: {high_pct}%;"></div>
+                    <div class="bar-med" style="width: {med_pct}%;"></div>
+                </div>
             </div>
         </section>
 

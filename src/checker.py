@@ -32,11 +32,13 @@ try:
     from src.discovery import enumerate_subdomains, save_discovered_subdomains
     from src.dns_resolver import NAME_NOT_FOUND_CODES, resolve_domain
     from src.exporter import Finding, export_findings
+    from src.remediation import export_remediation_playbook
     from src.signatures import SIGNATURES, match_signatures, match_signatures_detailed
 except ImportError:
     from discovery import enumerate_subdomains, save_discovered_subdomains
     from dns_resolver import NAME_NOT_FOUND_CODES, resolve_domain
     from exporter import Finding, export_findings
+    from remediation import export_remediation_playbook
     from signatures import SIGNATURES, match_signatures, match_signatures_detailed
 
 LOGGER = logging.getLogger("takeover_checker")
@@ -454,6 +456,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable ANSI color codes in terminal output",
     )
     parser.add_argument(
+        "--fix-script",
+        type=Path,
+        default=None,
+        help="Path to generate automated defensive DNS remediation playbooks (Route53/Cloudflare/BIND)",
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose DEBUG level logging",
@@ -482,6 +490,32 @@ def parse_custom_headers(raw_headers: list[str] | None) -> dict[str, str]:
         else:
             LOGGER.warning("Ignoring malformed header argument: '%s'", h)
     return headers
+
+
+def print_scan_summary(
+    total_scanned: int,
+    candidates_count: int,
+    format_name: str,
+    output_path: Path,
+    elapsed_seconds: float,
+    findings: Sequence[Finding],
+) -> None:
+    """Print aligned summary statistics box."""
+    critical_count = sum(1 for f in findings if f.severity.upper() == "CRITICAL")
+    high_count = sum(1 for f in findings if f.severity.upper() == "HIGH")
+
+    print("\n" + "=" * 55)
+    print(f"  {Color.BOLD}SCAN SUMMARY{Color.RESET}")
+    print("=" * 55)
+    print(f"  Targets Scanned    : {total_scanned}")
+    print(f"  Candidates Found   : {Color.BOLD}{candidates_count}{Color.RESET}")
+    if candidates_count > 0:
+        print(f"  {Color.RED}Critical Severity{Color.RESET}  : {critical_count}")
+        print(f"  {Color.YELLOW}High Severity{Color.RESET}      : {high_count}")
+    print(f"  Export Format      : {format_name.upper()}")
+    print(f"  Output File        : {output_path}")
+    print(f"  Execution Time     : {elapsed_seconds:.2f}s")
+    print("=" * 55 + "\n")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -550,6 +584,11 @@ def main(argv: list[str] | None = None) -> int:
             export_format=chosen_format,
             report_title=f"Subdomain Takeover Report - {args.domain or args.input.stem}",
         )
+
+        if args.fix_script and findings:
+            export_remediation_playbook(args.fix_script, findings)
+            LOGGER.info("Exported defensive remediation playbook to %s", args.fix_script)
+
     except (OSError, ValueError) as error:
         LOGGER.error("Fatal error: %s", error)
         return 2
@@ -561,22 +600,7 @@ def main(argv: list[str] | None = None) -> int:
         count,
         args.output,
     )
-
-    critical_count = sum(1 for f in findings if f.severity.upper() == "CRITICAL")
-    high_count = sum(1 for f in findings if f.severity.upper() == "HIGH")
-
-    print("\n" + "=" * 55)
-    print(f"  {Color.BOLD}SCAN SUMMARY{Color.RESET}")
-    print("=" * 55)
-    print(f"  Targets Scanned    : {len(hostnames)}")
-    print(f"  Candidates Found   : {Color.BOLD}{count}{Color.RESET}")
-    if count > 0:
-        print(f"  {Color.RED}Critical Severity{Color.RESET}  : {critical_count}")
-        print(f"  {Color.YELLOW}High Severity{Color.RESET}      : {high_count}")
-    print(f"  Export Format      : {chosen_format.upper()}")
-    print(f"  Output File        : {args.output}")
-    print(f"  Execution Time     : {elapsed:.2f}s")
-    print("=" * 55 + "\n")
+    print_scan_summary(len(hostnames), count, chosen_format, args.output, elapsed, findings)
     return 0
 
 

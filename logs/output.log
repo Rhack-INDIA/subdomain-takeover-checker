@@ -1,4 +1,4 @@
-2026-09-29 17:35:27,655 [INFO] Loaded 1 target(s) from evidence\sample_data.txt
-2026-09-29 17:35:27,655 [INFO] Starting scan on 1 target hostname(s)
-2026-09-29 17:35:27,655 [INFO] [1/1] Scanning missing.example.invalid
-2026-09-29 17:35:27,689 [INFO] Completed scan in 0.04 seconds. Found 1 candidate(s); results written to logs\test_output.html
+2026-09-29 18:37:23,531 [INFO] Loaded 1 target(s) from evidence\sample_data.txt
+2026-09-29 18:37:23,531 [INFO] Starting scan on 1 target hostname(s)
+2026-09-29 18:37:23,531 [INFO] [1/1] Scanning missing.example.invalid
+2026-09-29 18:37:23,572 [INFO] Completed scan in 0.04 seconds. Found 1 candidate(s); results written to C:\projects\subdomain_takeover_checker\takeover_targets.txt

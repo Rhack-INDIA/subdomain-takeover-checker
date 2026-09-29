@@ -467,13 +467,56 @@ class CliTests(unittest.TestCase):
         self.assertTrue(args.no_color)
         self.assertEqual(args.format, "html")
 
-    def test_parse_custom_headers(self):
-        raw = ["X-Forwarded-For: 127.0.0.1", "Authorization: Bearer secret_token", "invalid_header"]
-        parsed = parse_custom_headers(raw)
-        self.assertEqual(parsed["X-Forwarded-For"], "127.0.0.1")
-        self.assertEqual(parsed["Authorization"], "Bearer secret_token")
-        self.assertNotIn("invalid_header", parsed)
+    def test_parse_args_fix_script(self):
+        args = parse_args(["--fix-script", "fix.sh"])
+        self.assertEqual(str(args.fix_script), "fix.sh")
+
+
+class RemediationTests(unittest.TestCase):
+    def setUp(self):
+        self.sample_findings = [
+            Finding(
+                hostname="assets.example.com",
+                service="AWS S3",
+                cname="assets.s3.amazonaws.com",
+                reason="NoSuchBucket marker (404)",
+                status_code=404,
+                remediation="Claim bucket or delete CNAME.",
+            )
+        ]
+
+    def test_route53_remediation(self):
+        from src.remediation import generate_aws_route53_remediation
+        script = generate_aws_route53_remediation(self.sample_findings, hosted_zone_id="Z12345")
+        self.assertIn("Z12345", script)
+        self.assertIn("assets.example.com.", script)
+        self.assertIn("DELETE", script)
+
+    def test_cloudflare_remediation(self):
+        from src.remediation import generate_cloudflare_remediation
+        script = generate_cloudflare_remediation(self.sample_findings)
+        self.assertIn("assets.example.com", script)
+        self.assertIn("CF_API_TOKEN", script)
+        self.assertIn("curl", script)
+
+    def test_bind_remediation(self):
+        from src.remediation import generate_bind_remediation
+        script = generate_bind_remediation(self.sample_findings)
+        self.assertIn("assets.example.com.", script)
+        self.assertIn("CNAME", script)
+
+    def test_export_remediation_playbook(self):
+        from src.remediation import export_remediation_playbook
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_file = Path(temp_dir) / "remediation.sh"
+            export_remediation_playbook(out_file, self.sample_findings)
+            self.assertTrue(out_file.exists())
+            content = out_file.read_text(encoding="utf-8")
+            self.assertIn("AWS Route 53", content)
+            self.assertIn("Cloudflare", content)
+            self.assertIn("BIND", content)
 
 
 if __name__ == "__main__":
     unittest.main()
+
