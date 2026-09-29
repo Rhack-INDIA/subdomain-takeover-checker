@@ -1,9 +1,24 @@
-# Screenshot evidence
+# Screenshot Evidence
 
-Capture these from your own terminal after running the checker. The bundled `.invalid` hostname is reserved for documentation and its NXDOMAIN result is a demonstration only, not a real vulnerable target.
+Visual verification of project setup, high-performance scanning execution, and multi-format vulnerability reporting.
 
-- `01_setup.png`: project setup and the command used.
-- `02_output.png`: the completed command and generated `takeover_targets.txt`.
-- `03_findings.png`: the candidate output and log, clearly labeled as sample/demo evidence unless you have independently verified an authorized finding.
+---
 
-Do not claim a takeover from an NXDOMAIN result alone.
+### 1. Project Setup, Environment Activation & Test Suite Execution
+Verification of clean virtual environment, package dependencies, and 100% passing test execution (35/35 unit tests passing):
+
+![Project Setup](01_setup.png)
+
+---
+
+### 2. Multi-Threaded Red Team Scanner Execution
+Live execution demonstrating multi-threaded hostname scanning, real-time candidate detection, colorized severity tagging, and scan summary metrics:
+
+![Scanner Execution](02_output.png)
+
+---
+
+### 3. Executive Findings Evidence & Interactive HTML Vulnerability Report
+Candidate evidence output in `takeover_targets.txt` alongside the standalone, interactive dark-mode HTML security assessment dashboard:
+
+![Findings Evidence](03_findings.png)

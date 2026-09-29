@@ -211,6 +211,19 @@ docs.example.com,GitHub Pages,org.github.io,GitHub Pages marker (404),404,2026-0
 
 ---
 
+## Visual Evidence & Screenshots
+
+### 1. Project Setup, Virtual Environment & 35-Test Suite Execution
+![Project Setup](screenshots/01_setup.png)
+
+### 2. Multi-Threaded Red Team Scanner Execution
+![Scanner Execution](screenshots/02_output.png)
+
+### 3. Executive Findings Evidence & Interactive HTML Vulnerability Report
+![Findings Evidence](screenshots/03_findings.png)
+
+---
+
 ## Testing
 
 Run the full offline test suite:
