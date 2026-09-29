@@ -12,13 +12,28 @@ from src.checker import (
     is_name_not_found,
     normalize_hostname,
     parse_args,
+    parse_custom_headers,
     read_hostnames,
     scan_hostnames,
     write_results,
 )
+from src.discovery import (
+    clean_domain,
+    enumerate_subdomains,
+    query_crt_sh,
+    query_hackertarget,
+    save_discovered_subdomains,
+)
 from src.dns_resolver import DnsLookupResult
-from src.exporter import Finding, export_findings, format_csv, format_json, format_text
-from src.signatures import SIGNATURES, match_signatures
+from src.exporter import (
+    Finding,
+    export_findings,
+    format_csv,
+    format_html,
+    format_json,
+    format_text,
+)
+from src.signatures import SIGNATURES, match_signatures, match_signatures_detailed
 
 
 class HostnameValidationTests(unittest.TestCase):
@@ -141,6 +156,96 @@ class DetectionTests(unittest.TestCase):
             self.assertEqual(len(findings), 1)
             self.assertEqual(findings[0].service, "Microsoft Azure")
 
+    def test_cloudflare_detection(self):
+        dns_res = DnsLookupResult(
+            hostname="cdn.example.com",
+            canonical_cname="custom.cloudflare.net",
+            ip_addresses=["104.16.1.1"],
+        )
+        response = Mock(
+            status_code=522,
+            text="Error 1016: Origin DNS error",
+        )
+        with (
+            patch("src.checker.resolve_domain", return_value=dns_res),
+            patch("src.checker.requests.get", return_value=response),
+        ):
+            findings = check_hostname("cdn.example.com", 1)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].service, "Cloudflare")
+
+    def test_netlify_detection(self):
+        dns_res = DnsLookupResult(
+            hostname="site.example.com",
+            canonical_cname="site.netlify.app",
+            ip_addresses=["35.1.2.3"],
+        )
+        response = Mock(
+            status_code=404,
+            text="<h1>Not Found - Request ID: 12345</h1>",
+        )
+        with (
+            patch("src.checker.resolve_domain", return_value=dns_res),
+            patch("src.checker.requests.get", return_value=response),
+        ):
+            findings = check_hostname("site.example.com", 1)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].service, "Netlify")
+
+    def test_vercel_detection(self):
+        dns_res = DnsLookupResult(
+            hostname="app.example.com",
+            canonical_cname="cname.vercel-dns.com",
+            ip_addresses=["76.76.21.21"],
+        )
+        response = Mock(
+            status_code=404,
+            text="<div>404: NOT_FOUND</div><p>The deployment could not be found on Vercel</p>",
+        )
+        with (
+            patch("src.checker.resolve_domain", return_value=dns_res),
+            patch("src.checker.requests.get", return_value=response),
+        ):
+            findings = check_hostname("app.example.com", 1)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].service, "Vercel")
+
+    def test_firebase_detection(self):
+        dns_res = DnsLookupResult(
+            hostname="auth.example.com",
+            canonical_cname="auth.firebaseapp.com",
+            ip_addresses=["199.36.158.100"],
+        )
+        response = Mock(
+            status_code=404,
+            text="<title>Site Not Found</title>",
+        )
+        with (
+            patch("src.checker.resolve_domain", return_value=dns_res),
+            patch("src.checker.requests.get", return_value=response),
+        ):
+            findings = check_hostname("auth.example.com", 1)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].service, "Firebase Hosting")
+
+    def test_gitlab_pages_detection(self):
+        dns_res = DnsLookupResult(
+            hostname="gitdocs.example.com",
+            canonical_cname="project.gitlab.io",
+            ip_addresses=["35.185.44.232"],
+        )
+        response = Mock(
+            status_code=404,
+            text="The page you're looking for could not be found",
+        )
+        with (
+            patch("src.checker.resolve_domain", return_value=dns_res),
+            patch("src.checker.requests.get", return_value=response),
+        ):
+            findings = check_hostname("gitdocs.example.com", 1)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].service, "GitLab Pages")
+
     def test_http_error_is_logged_and_other_scheme_checked(self):
         dns_res = DnsLookupResult(
             hostname="host.example.com",
@@ -157,6 +262,94 @@ class DetectionTests(unittest.TestCase):
         ):
             self.assertEqual(check_hostname("host.example.com", 1), [])
             self.assertEqual(get.call_count, 2)
+
+
+class NetworkOptionsTests(unittest.TestCase):
+    def test_check_hostname_with_proxy_and_headers(self):
+        dns_res = DnsLookupResult(hostname="app.example.com", ip_addresses=["1.2.3.4"])
+        mock_response = Mock(status_code=200, text="ok")
+        with (
+            patch("src.checker.resolve_domain", return_value=dns_res),
+            patch("src.checker.requests.get", return_value=mock_response) as mock_get,
+        ):
+            check_hostname(
+                "app.example.com",
+                timeout=2.0,
+                proxy="http://127.0.0.1:8080",
+                custom_headers={"X-Test-Header": "Antigravity"},
+            )
+            self.assertTrue(mock_get.called)
+            call_kwargs = mock_get.call_args[1]
+            self.assertEqual(call_kwargs["proxies"], {"http": "http://127.0.0.1:8080", "https": "http://127.0.0.1:8080"})
+            self.assertEqual(call_kwargs["headers"]["X-Test-Header"], "Antigravity")
+
+    def test_check_hostname_with_retries(self):
+        dns_res = DnsLookupResult(hostname="retry.example.com", ip_addresses=["1.2.3.4"])
+        mock_response = Mock(status_code=404, text="<Code>NoSuchBucket</Code>")
+        with (
+            patch("src.checker.resolve_domain", return_value=dns_res),
+            patch(
+                "src.checker.requests.get",
+                side_effect=[requests.ConnectionError("fail1"), mock_response],
+            ) as mock_get,
+        ):
+            findings = check_hostname("retry.example.com", timeout=1.0, retries=1)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].service, "AWS S3")
+
+
+class DiscoveryTests(unittest.TestCase):
+    def test_clean_domain_valid(self):
+        self.assertEqual(clean_domain("example.com"), "example.com")
+        self.assertEqual(clean_domain("https://sub.example.com:8443/test/path"), "sub.example.com")
+        self.assertEqual(clean_domain("WWW.TARGET.ORG."), "www.target.org")
+
+    def test_clean_domain_invalid(self):
+        for bad in ("", "invalid", "http://", "a..b.com"):
+            with self.assertRaises(ValueError):
+                clean_domain(bad)
+
+    def test_query_crt_sh(self):
+        mock_response = Mock(
+            status_code=200,
+            json=lambda: [
+                {"name_value": "api.example.com\n*.dev.example.com"},
+                {"name_value": "docs.example.com"},
+                {"name_value": "othercorp.com"},  # Out of scope
+            ],
+        )
+        with patch("src.discovery.requests.get", return_value=mock_response):
+            subs = query_crt_sh("example.com", timeout=3.0)
+            self.assertIn("api.example.com", subs)
+            self.assertIn("dev.example.com", subs)
+            self.assertIn("docs.example.com", subs)
+            self.assertNotIn("othercorp.com", subs)
+
+    def test_query_hackertarget(self):
+        mock_response = Mock(
+            status_code=200,
+            text="portal.example.com,1.2.3.4\nmail.example.com,5.6.7.8\n",
+        )
+        with patch("src.discovery.requests.get", return_value=mock_response):
+            subs = query_hackertarget("example.com", timeout=3.0)
+            self.assertIn("portal.example.com", subs)
+            self.assertIn("mail.example.com", subs)
+
+    def test_enumerate_subdomains_integration(self):
+        with (
+            patch("src.discovery.query_crt_sh", return_value={"sub1.example.com"}),
+            patch("src.discovery.query_hackertarget", return_value={"sub2.example.com"}),
+        ):
+            results = enumerate_subdomains("example.com")
+            self.assertEqual(results, ["sub1.example.com", "sub2.example.com"])
+
+    def test_save_discovered_subdomains(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_file = Path(temp_dir) / "discovered.txt"
+            count = save_discovered_subdomains(out_file, ["a.example.com", "b.example.com"])
+            self.assertEqual(count, 2)
+            content = out_file.read_text(encoding="utf-8")
+            self.assertEqual(content, "a.example.com\nb.example.com\n")
 
 
 class ExporterTests(unittest.TestCase):
@@ -191,6 +384,16 @@ class ExporterTests(unittest.TestCase):
         self.assertIn("hostname,service,cname,reason,status_code,timestamp", csv_str)
         self.assertIn("s3.example.com,AWS S3,bucket.s3.amazonaws.com", csv_str)
 
+    def test_format_html(self):
+        html_str = format_html(self.sample_findings, report_title="Test Assessment")
+        self.assertIn("<!DOCTYPE html>", html_str)
+        self.assertIn("Test Assessment", html_str)
+        self.assertIn("s3.example.com", html_str)
+        self.assertIn("AWS S3", html_str)
+        self.assertIn("badge-critical", html_str)
+        self.assertIn("id=\"findingsTable\"", html_str)
+        self.assertIn("filterSeverity", html_str)
+
     def test_writes_output_legacy_format(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "nested" / "targets.txt"
@@ -208,6 +411,15 @@ class ExporterTests(unittest.TestCase):
             self.assertEqual(count, 2)
             loaded = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(len(loaded), 2)
+
+    def test_writes_output_html_format(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "report.html"
+            count = write_results(output, self.sample_findings, export_format="html")
+            self.assertEqual(count, 2)
+            content = output.read_text(encoding="utf-8")
+            self.assertIn("<!DOCTYPE html>", content)
+            self.assertIn("AWS S3", content)
 
 
 class ConcurrencyTests(unittest.TestCase):
@@ -234,6 +446,33 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.format, "json")
         self.assertTrue(args.no_verify_ssl)
         self.assertTrue(args.verbose)
+
+    def test_parse_args_domain_and_proxy(self):
+        args = parse_args([
+            "-d", "example.com",
+            "--save-subdomains", "subs.txt",
+            "-p", "http://127.0.0.1:8080",
+            "-H", "X-Custom: 123",
+            "--delay", "0.5",
+            "-r", "2",
+            "--no-color",
+            "-f", "html",
+        ])
+        self.assertEqual(args.domain, "example.com")
+        self.assertEqual(str(args.save_subdomains), "subs.txt")
+        self.assertEqual(args.proxy, "http://127.0.0.1:8080")
+        self.assertEqual(args.headers, ["X-Custom: 123"])
+        self.assertEqual(args.delay, 0.5)
+        self.assertEqual(args.retries, 2)
+        self.assertTrue(args.no_color)
+        self.assertEqual(args.format, "html")
+
+    def test_parse_custom_headers(self):
+        raw = ["X-Forwarded-For: 127.0.0.1", "Authorization: Bearer secret_token", "invalid_header"]
+        parsed = parse_custom_headers(raw)
+        self.assertEqual(parsed["X-Forwarded-For"], "127.0.0.1")
+        self.assertEqual(parsed["Authorization"], "Bearer secret_token")
+        self.assertNotIn("invalid_header", parsed)
 
 
 if __name__ == "__main__":
